@@ -1,0 +1,388 @@
+---
+title: "Uygulamalı Zaman Serisi Analizi Projesi"
+author: "Canberk BULUT - Simten ÖZCAN USLU"
+date: "19 05 2021"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. Giriş
+
+Proje kapsamında 2 farklı veri seti incelenmiştir. İlk veri seti decompose argümanını incelemek ve Holt-Winters yöntemini analiz etmek için kullanılmıştır. İkinci veri seti ise ARIMA teknikleri incelenmiştir.
+
+# 2.Veri Setini Tanımı  
+
+Federal Rezerv Ekonomik Veritabanı (FRED) tarafından barındırılan Federal Rezerv'ten alınan bir veri kümesidir. İşgücü piyasası koşulları endeksi değişimini içermektedir.
+
+### Gerekli Kütüphaneler
+
+
+```{r}
+library("forecast")
+library("tseries")
+library("lmtest")
+library("TTR") 
+library("stats")
+```
+
+\newpage
+
+# 3.Zaman Serisi Bileşenleri
+
+```{r}
+frblmci<-read.csv("C:/Users/Downloads/FRBLMCI.csv")
+frblmci<- frblmci[-1]
+frblmci<- frblmci[-1]
+frblmci<- frblmci[-1]
+ts.frblmci<-ts(frblmci,frequency = 12, start=c(1976,8))
+ts.plot(ts.frblmci)
+```
+
+* Trend bileşeni yok gibi görünüyor, mevsimsellik net olarak yorumlanamıyor. Sabit ortalama gözlenmektedir, ancak bileşenlerine bakılmalıdır.
+
+\newpage
+
+## Bileşenlere Ayırma
+
+```{r}
+ts.frblmci.components<-decompose(ts.frblmci)
+plot(ts.frblmci.components)
+
+```
+
+* Herhangi bir trend bileşeni görülmemektedir.
+
+* Mevsimsellik etkisi görülmektedir. 
+
+
+
+# 4.Üssel Düzeltme Yöntemleri
+
+
+```{r}
+holt.frblmci <- HoltWinters(ts.frblmci, beta = FALSE, gamma = TRUE)
+
+holt.frblmci
+
+```
+
+* Mevsimsellik etkisi görüldüğü için gamma = TRUE modeli seçilmiştir. 
+
+* Model sonucu olarak alfa değeri 0.86 çıkmıştır, bu alfa değerine bakılarak son gözlemlere ağırlık verildiği söylenebilir.
+
+
+
+```{r}
+plot(holt.frblmci)
+
+```
+
+* Gözlem değerleri ile holtwinter methodunun tahminleri örtüşmektedir.
+
+
+
+
+```{r}
+holt.frblmci.forecats<-forecast:::forecast.HoltWinters(holt.frblmci,h=19)
+forecast:::plot.forecast(holt.frblmci.forecats)
+
+```
+
+* Beyaz kısım %95 güvenle tahmin aralığını , mavi kısım %80 güvenle tahmin aralığını göstermektedir.
+
+
+
+
+# 5. Kaliforniya Veri Setini Tanımı  
+
+Bu veri kümesi, 1959'da Kaliforniya'daki günlük kadın doğumlarının sayısını açıklıyor.
+
+Birimler bir sayıdır ve 365 gözlem vardır. 
+
+```{r}
+birth<-read.csv("C:/Users/cberk/Downloads/daily-total-female-births.csv")
+birth<-birth[-1]
+ts.birth<-ts(birth,frequency = 365)
+
+
+```
+
+
+### Zaman Serisi Grafiği
+
+
+
+```{r}
+ts.plot(ts.birth)
+```
+
+* Verisetinde sabit bir ortalama gözlenmektedir. Mevsimsellik gözlenmemektedir. Grafiğe bakıldığında sabit ortalama sabit varyansa sahiptir diyebiliriz.
+
+\newpage
+
+## Durağanlık Sınaması
+
+### Otokorelasyon Grafiği
+
+
+ACF ve PACF de çok fazla anlamlı korelasyon görüldüğü icin 1.dereceden fark alıp tekrar denedik.
+
+
+```{r}
+acf(ts.birth,lag.max = 50)
+```
+
+* ACF grafiğine bakıldığında çok fazla anlamlı otokorelasyon görülmektedir, bu sebeple dönüşüm uygulanması gerekmektedir.
+
+
+\newpage
+
+### Partial Otokorelasyon Grafiği
+
+
+```{r}
+pacf(ts.birth,lag.max = 50)
+```
+
+### Durağanlık Testi Dickey-Fuller Testi
+
+
+
+```{r}
+adf.test(ts.birth)
+```
+* H0: Birim kök var ( durağan değil)
+* p value 0.01 cıktı 0.05 den kücük olduğu için H0 red edilir, seri durağandır.
+
+
+## 1 Fark Alınan Verilerde Durağanlık Sınaması
+
+### Otokorelasyon Grafiği
+
+
+
+
+```{r}
+ts.birthdiff<-diff(ts.birth,difference=1)
+acf(ts.birthdiff,lag.max = 50)
+```
+
+* ACF de lag 1 den sonra cut off olmuştur.
+
+\newpage
+
+
+### Partial Otokorelasyon Grafiği
+
+* PACF de hızlıca azalmıştır.
+
+
+```{r}
+pacf(ts.birthdiff,lag.max = 50)
+```
+
+1.dereceden fark alındığında daha durağan bir görünüm sergiledi. Ayrıca MA1 modeline benzer bir korelasyon gösterdi.
+
+
+```{r}
+ts.plot(ts.birthdiff)
+```
+
+## 6.Geçici Model Belirlenmesi
+
+
+```{r}
+model1<-arima(ts.birth,order=c(0,1,1))
+model1
+
+```
+*  |-0,948| < 1 olduğu için çevrilebilirlik koşulunu sağlamaktadır.
+
+
+
+
+
+
+
+\newpage
+
+
+
+
+```{r}
+model2<-arima(ts.birth,order=c(0,1,2))
+model2
+
+```
+* -0.8478 -0.1079 < 1
+
+* -0.1079 - (-0.8478) < 1
+
+*  |-0.1079| < 1
+
+* Bu model koşulları sağladığı için çevrilebilirlik koşulunu sağlamaktadır.
+
+
+### Model1 icin
+
+ACF residuallar sınırı aşmamış.
+p value lar çok yüksek değil ancak 0.05 ten yüksek.
+
+
+```{r}
+tsdiag(model1)
+
+```
+
+
+
+
+```{r}
+coeftest(model1)
+
+```
+
+* z valuelara bakıldığında ma1 ve ma2 parametreleri anlamlı.
+
+
+
+
+```{r}
+Box.test(model1$residuals,lag=6)
+
+```
+
+* p value değerleri 1 yakındır.
+
+```{r}
+Box.test(model1$residuals,lag=12)
+
+```
+
+
+```{r}
+Box.test(model1$residuals,lag=48)
+
+```
+
+\newpage
+
+
+### Model2 icin
+
+
+
+
+```{r}
+tsdiag(model2)
+
+```
+
+* ACF residuallar sınırı aşmamıştır.
+
+*  p valuelar artarak gitmektedir, ACF residuallar da anlamlı otokorelasyon görülmemektedir, standardized residuallar da herhangi bir sorun görülmemektedir.
+
+
+
+
+```{r}
+coeftest(model2)
+
+```
+
+* z valuelara bakıldığında ma1 ve ma2 parametreleri anlamlı
+
+```{r}
+Box.test(model2$residuals,lag=6)
+
+```
+
+
+```{r}
+Box.test(model2$residuals,lag=12)
+
+```
+
+
+```{r}
+Box.test(model2$residuals,lag=48)
+
+```
+
+
+
+```{r}
+forecast(model1,h=5)
+
+```
+
+
+
+```{r}
+plot(forecast(model1,h=5))
+
+```
+
+* Açık renkli kısım %95, koyu renkli kısım %80 güven düzeyinde tahmin aralığını göstermektedir.
+
+
+```{r}
+forecast(model2,h=5)
+
+```
+
+```{r}
+plot(forecast(model2,h=5))
+
+```
+
+* Açık renkli kısım %95, koyu renkli kısım %80 güven düzeyinde tahmin aralığını göstermektedir.
+
+
+
+## 7. Sonuç
+
+Sonuç olarak AIC degerine gore  model 2 nin daha düşük olması ve p value değerlerine gore de daha yüksek değerler vermesi sebebiyle  seçilmesi daha uygundur.
+
+
+Auto Arima ya göre arima(0,1,2) modeli uygun çıkmıştır.
+
+```{r}
+auto.arima(ts.birth)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
