@@ -1,0 +1,398 @@
+---
+title: "Seminer"
+author: "Canberk Bulut"
+date: "08 06 2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Gerekli Kütüphaneler
+```{r}
+library("plotly")
+library("readr")
+library("readxl")
+library("forecast")
+library("tseries")
+library("lmtest")
+library("TTR") 
+library("stats")
+library("tidyverse")
+library("ggplot2")
+library("rugarch")
+library("rmgarch")
+library("MTS")
+library("keras")
+library("tensorflow")
+library("Metrics")
+```
+
+
+```{r}
+setwd("C:/Users/cberk/Desktop")
+sp500closed<-read_excel("sp500closed.xlsx")
+```
+
+
+```{r}
+sp500closed2<-sp500closed[-1]
+ts.sp500c<-ts(sp500closed2,frequency = 365)
+ts.plot(ts.sp500c)
+
+
+```
+
+Mevsimsellik yok trend var gibi duruyor.
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+acf(ts.sp500c,lag.max = 100)
+```
+
+```{r}
+pacf(ts.sp500c,lag.max = 100)
+```
+
+acf grafiği durağan görünmüyor, bu yüzden 1 fark alma islemi denedik.
+
+
+
+
+
+
+```{r}
+ts.sp500cdiff<-diff(ts.sp500c,difference=1)
+acf(ts.sp500cdiff,lag.max = 100)
+```
+
+```{r}
+pacf(ts.sp500cdiff,lag.max = 100)
+```
+
+```{r}
+adf.test(ts.sp500cdiff)
+```
+
+
+```{r}
+model<- arima(ts.sp500c,order=c(0,1,2))
+```
+
+```{r}
+model2<- arima(ts.sp500c, order=c(6,1,0))
+model3<- arima(ts.sp500c, order=c(5,1,0))
+```
+
+
+```{r}
+auto.arima(ts.sp500c)
+coeftest(model)
+```
+```{r}
+checkresiduals(model)
+```
+```{r}
+tsdiag(model)
+
+
+```
+#garch uygula, önce default uygula.
+
+
+
+```{r}
+fit=arima(ts.sp500c,order=c(0,1,2))
+r=resid(fit)
+rr=r^2
+par(mfrow=c(1,2))
+acf(as.vector(rr),main="ACF of Squared Residuals")
+pacf(as.vector(rr),main="PACF of Squared Residuals")
+```
+
+```{r}
+archTest(r)
+```
+H0: Artıklar ARCH etkisi göstermez
+H1: ARCH etkisi mevcuttur
+arch etkilerinin varlığı sonucu çıkar
+```{r}
+spec=ugarchspec()
+print(spec)
+```
+ARIMA(1,1), ve GARCH(1,1)
+
+```{r}
+def.fit=ugarchfit(spec=spec,data=r)
+print(def.fit)
+```
+Ljung box a bakıldığında H0 reddedilemez.Artıkların kareleri arasında otokorelasyon yoktur.
+
+LM testine bakıldığında H0 reddedilemez.Uygulanan GARCH modeli uygun.
+
+Nyblom stability test e bakıldığında %5 için sabit terim dışındakiler kritik değerden büyüktür, H0 reddedilebilir. Yani parametre değerleri sabit değildir.
+
+adjusted pearson goodness of fit test e bakıldığında H0 reddedilir. 
+
+Default model çok iyi görünmedi, başka bir model denedik
+
+```{r}
+spec2=ugarchspec(variance.model=list(model="sGARCH",garchOrder=c(2,1)))
+def.fit2=ugarchfit(spec=spec2,data=r)
+print(def.fit2)
+```
+AIC değerine bakıldığında düşüş gerçekleşmiştir.
+
+
+
+```{r}
+spec3=ugarchspec(variance.model=list("apARCH"))
+def.fit3=ugarchfit(spec=spec3,data=r)
+print(def.fit3)
+```
+
+
+
+
+```{r}
+spec4=ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(1,1)),
+
+               mean.model=list(armaOrder=c(0,2), include.mean=TRUE), 
+
+               distribution.model="std")
+
+spec5=ugarchspec(variance.model = list(model="iGARCH",         
+                                            garchOrder=c(1,1)), 
+                      mean.model = list(armaOrder=c(0,2),
+                                        arfima = T),    # using arfima model
+                      fixed.pars=list(arfima = 1),    # If you want to fix d
+                      distribution.model = "std")
+
+def.fit5=ugarchfit(spec=spec5,data=ts.sp500c)
+print(def.fit5)
+def.fit4=ugarchfit(spec=spec4,data=ts.sp500cdiff)
+print(def.fit4)
+```
+
+
+4.model seçilmelidir.
+
+```{r}
+bootp=ugarchboot(def.fit4,method=c("Partial","Full")[1],n.ahead=12,n.bootpred = 1000,n.bootfit = 1000)
+bootp
+```
+
+
+
+##Bu kısmı sor.
+arima mae hesapla
+arima garch ın mae hesapla
+lstm mae hesapla
+
+
+
+#LSTM
+
+```{r}
+dateID <- sp500closed$Date[2:nrow(sp500closed)]
+supervised <- as.data.frame(cbind(lag(sp500closed2,1), sp500closed2))
+supervised[is.na(supervised)] <- 0
+n_ <- round(nrow(sp500closed) * .70, digits = 0)
+train <- supervised[1:n_, ]
+test <- supervised[(n_+1):755,]
+train_id <- dateID[1:n_]
+test_id <- dateID[(n_+1):755]
+
+
+
+```
+
+```{r}
+scale_data <- function(train, test, feature_range = c(0,1)) {
+  x = train
+  fr_min = feature_range[1]
+  fr_max = feature_range[2]
+  std_train = (x - min(x)) / (max(x) - min(x))
+  std_test = (test - min(x)) / (max(x) - min(x))
+  
+  scaled_train = std_train * (fr_max - fr_min) + fr_min
+  scaled_test = std_test * (fr_max - fr_min) + fr_min
+
+  return( list(scaled_train = as.vector(scaled_train), scaled_test = as.vector(scaled_test) ,scaler= c(min =min(x), max = max(x))) )
+}
+```
+
+```{r}
+reverse_scaling <- function(scaled, scaler, feature_range = c(0,1)) {
+  min = scaler[1]
+  max = scaler[2]
+  t = length(scaled)
+  mins = feature_range[1]
+  maxs = feature_range[2]
+  inverted_dfs = numeric(t)
+  
+  for(i in 1:t) {
+    X = (scaled[i] - mins) / (maxs - mins)
+    rawValues = X * (max - min) + min
+    inverted_dfs[i] <- rawValues
+  }
+  return(inverted_dfs)
+}
+```
+
+
+```{r}
+Scaled <- scale_data(train, test, c(-1,1))
+
+x_train <- Scaled$scaled_train[,1]
+y_train <- Scaled$scaled_train[,2]
+
+x_test <- Scaled$scaled_test[,1]
+y_test <- Scaled$scaled_test[,2]
+```
+
+
+```{r}
+dim(x_train) <- c(length(x_train), 1,1)
+X_shape2 <- dim(x_train)[2]
+X_shape3 <- dim(x_train)[3]
+batch_size <- 1
+units <- 100
+n_timesteps <- 12
+n_predictions <- n_timesteps
+
+build_matrix <- function(tseries, overall_timesteps) {
+  t(sapply(1:(length(tseries) - overall_timesteps + 1), function(x) 
+    tseries[x:(x + overall_timesteps - 1)]))
+}
+reshape_X_3d <- function(X) {
+  dim(X) <- c(dim(X)[1], dim(X)[2], 1)
+  X
+}
+
+
+```
+
+
+
+
+
+
+
+
+```{r}
+model.lstm <- keras_model_sequential()
+
+```
+
+
+```{r}
+
+model.lstm %>% 
+  layer_lstm(units, batch_input_shape = c(batch_size, X_shape2, X_shape3), stateful = TRUE) %>%
+  layer_dense(units = 1)
+```
+
+
+
+```{r}
+model.lstm %>% 
+  compile(loss = 'mean_squared_error',
+          optimizer = optimizer_adam(lr = 0.03, decay = 1e-6),
+          metrics = c('accuracy','mse','mae'))
+```
+
+```{r}
+
+  
+history <- model.lstm %>% fit(x_train,y_train,
+                              epochs = 25,
+                              batch_size = 128,
+                              validation_split = 0.2,
+                              shuffle=FALSE)
+```
+
+
+
+```{r}
+
+arimaFit <- auto.arima(ts.sp500c)
+arimaFitted <- arimaFit$fitted
+arimaFitted <- as.data.frame(cbind(arimaFitted, sp500closed$Date ))
+arimaFitted <- arimaFitted[-1,]
+arimaFitted <- cbind(arimaFitted, sp500closed[-1,])
+arimaFitted$set <- "train2"
+arimaFitted$set[arimaFitted$`sp500closed$Date` > 529] <- "test2"
+arimaFitted$arimaFitted[arimaFitted$set == "train2"] <- NA
+arimaPlot <- plot_ly(arimaFitted, x = ~`Date`) %>%
+  add_trace(y = ~Close, mode = "lines", name = "Interest Rate") %>%
+  add_trace(y = ~arimaFitted, mode = "lines", name = "Interest Rate") %>%
+  layout(title = "ARIMA")
+arimaMAE <- arimaFitted %>% filter(set == "test2") %>% select(`Close`, arimaFitted)
+ arimaMAE <- mae(arimaMAE$`Close`, as.numeric(arimaMAE$arimaFitted))
+ arimaMAE
+
+```
+
+```{r}
+
+garchfitted<-fitted(def.fit5)
+garchfitted <- as.data.frame(cbind(garchfitted, sp500closed$Date ))
+garchfitted<-garchfitted[-2]
+garchfitted<-as.data.frame(cbind(garchfitted, as.data.frame(sp500closed$Date)))
+garchfitted <- garchfitted[-1,]
+garchfitted <- cbind(garchfitted, sp500closed[-1,])
+garchfitted$set <- "train3"
+garchfitted$set[garchfitted$`sp500closed$Date` > 529] <- "test3"
+garchfitted$garchfitted[garchfitted$set == "train3"]<-NA
+garchPlot <- plot_ly(garchfitted, x = ~`Date`) %>%
+  add_trace(y = ~Close, mode = "lines", name = "Interest Rate") %>%
+  add_trace(y = ~garchfitted, mode = "lines", name = "Interest Rate") %>%
+  layout(title = "GARCH")
+garchMAE <- garchfitted %>% filter(set == "test3") %>% select(`Close`, garchfitted)
+ garchMAE <- mae(garchMAE$`Close`, as.numeric(garchMAE$garchfitted))
+ garchMAE
+
+
+
+```
+
+
+```{r}
+L = length(x_test)
+scaler = Scaled$scaler
+predictions = numeric(L)
+Series=sp500closed$Close
+
+for(i in 1:L){
+  X = x_test[i]
+  dim(X) = c(1,1,1)
+  yhat = model.lstm %>% predict(X, batch_size=batch_size)
+  # invert scaling
+  yhat = reverse_scaling(yhat, scaler,  c(-1, 1))
+  # invert differencing
+  yhat  = yhat + Series[(n_+i)]
+  # store
+  predictions[i] <- yhat
+}
+names(test)[1] <- "Closed"
+mae(test$Closed,predictions)
+```
+
+```{r}
+
+
+
+```
+
