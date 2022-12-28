@@ -1,0 +1,792 @@
+---
+title: "Untitled"
+author: "Canberk Bulut"
+date: "14 12 2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Gerekli Kütüphaneler
+```{r}
+library("plotly")
+library("readr")
+library("readxl")
+library("forecast")
+library("tseries")
+library("lmtest")
+library("TTR") 
+library("stats")
+library("tidyverse")
+library("ggplot2")
+library("rugarch")
+library("rmgarch")
+library("MTS")
+library("keras")
+library("tensorflow")
+library("Metrics")
+library(e1071)
+use_condaenv("r-tensorflow")
+```
+
+
+```{r}
+setwd("C:/Users/cberk/Downloads")
+nasdaq<-read_xlsx("nasdaq_closed2.xlsx")
+dax<-read_xlsx("dax_closed2.xlsx")
+```
+
+
+```{r}
+nasdaq2<-nasdaq[-1]
+ts.nasdaq<-ts(nasdaq2,frequency = 365)
+ts.plot(ts.nasdaq)
+nasdaq3<-log(nasdaq2)
+nasdaq4<-diff(nasdaq3$Close,differences = 1)
+df<-data.frame(Close=nasdaq4)
+date<-data.frame(nasdaq$Date[-1])
+nasdaq5<-cbind(date,df)
+
+
+
+```
+logdiff olanlarına lstm ve arima uygula ,svm 
+
+
+```{r}
+dax2<-dax[-1]
+ts.dax<-ts(dax2,frequency = 365)
+ts.plot(ts.dax)
+dax3<-log(dax2)
+dax4<-diff(dax3$Close,differences = 1)
+df2<-data.frame(Close=dax4)
+date2<-data.frame(dax$Date[-1])
+dax5<-cbind(date2,df2)
+
+
+
+```
+```{r}
+fit=arima(ts.dax,order=c(0,1,1))
+r=resid(fit)
+```
+
+```{r}
+archTest(r)
+spec4=ugarchspec(variance.model=list(model="eGARCH", garchOrder=c(1,1)),
+
+               mean.model=list(armaOrder=c(1,1), include.mean=TRUE))
+
+```
+```{r}
+def.fit=ugarchfit(spec=spec4,dax4, solver='hybrid',distribution.model="nig")
+print(def.fit)
+```
+
+```{r}
+acf(ts.dax,lag.max = 50)
+```
+
+```{r}
+pacf(ts.dax,lag.max = 50)
+```
+```{r}
+ts.daxdiff<-diff(ts.dax,difference=1)
+acf(ts.daxdiff,lag.max = 50)
+```
+  
+  
+  
+```{r}
+pacf(ts.daxdiff,lag.max = 50)
+
+
+```
+```{r}
+ts.daxlogdiff<-diff(log(ts.dax),difference=1)
+acf(ts.daxlogdiff,lag.max = 50)
+```
+
+```{r}
+pacf(ts.daxlogdiff,lag.max=50)
+```
+
+#NASDAQ
+
+
+
+```{r}
+acf(ts.nasdaq,lag.max = 50)
+```
+
+```{r}
+pacf(ts.nasdaq,lag.max = 50)
+```
+
+```{r}
+ts.nasdaqdiff<-diff(ts.nasdaq,difference=1)
+acf(ts.nasdaqdiff,lag.max = 50)
+```
+  
+  
+  
+```{r}
+pacf(ts.nasdaqdiff,lag.max = 50)
+
+
+```
+
+```{r}
+ts.nasdaqlogdiff<-diff(log(ts.dax),difference=1)
+acf(ts.nasdaqlogdiff,lag.max = 50)
+```
+
+```{r}
+auto.arima(log(ts.dax))
+```
+
+```{r}
+pacf(ts.nasdaqlogdiff,lag.max=50)
+```
+
+
+
+
+```{r}
+dateID2 <- dax5$Date[2:nrow(dax5)]
+supervised <- as.data.frame(cbind(lag(dax4,1), dax4))
+supervised[is.na(supervised)] <- 0
+n_ <- round(nrow(dax5) * .70, digits = 0)
+train <- supervised[1:n_, ]
+test <- supervised[(n_+1):1210,]
+train_id <- dateID[1:n_]
+test_id <- dateID[(n_+1):1210]
+
+
+
+```
+
+```{r}
+scale_data <- function(train, test, feature_range = c(0,1)) {
+  x = train
+  fr_min = feature_range[1]
+  fr_max = feature_range[2]
+  std_train = (x - min(x)) / (max(x) - min(x))
+  std_test = (test - min(x)) / (max(x) - min(x))
+  
+  scaled_train = std_train * (fr_max - fr_min) + fr_min
+  scaled_test = std_test * (fr_max - fr_min) + fr_min
+
+  return( list(scaled_train = as.vector(scaled_train), scaled_test = as.vector(scaled_test) ,scaler= c(min =min(x), max = max(x))) )
+}
+```
+
+```{r}
+reverse_scaling <- function(scaled, scaler, feature_range = c(0,1)) {
+  min = scaler[1]
+  max = scaler[2]
+  t = length(scaled)
+  mins = feature_range[1]
+  maxs = feature_range[2]
+  inverted_dfs = numeric(t)
+  
+  for(i in 1:t) {
+    X = (scaled[i] - mins) / (maxs - mins)
+    rawValues = X * (max - min) + min
+    inverted_dfs[i] <- rawValues
+  }
+  return(inverted_dfs)
+}
+```
+
+
+
+```{r}
+Scaled <- scale_data(train, test, c(-1,1))
+
+x_train <- Scaled$scaled_train[,1]
+y_train <- Scaled$scaled_train[,2]
+
+x_test <- Scaled$scaled_test[,1]
+y_test <- Scaled$scaled_test[,2]
+```
+
+
+```{r}
+dim(x_train) <- c(length(x_train), 1,1)
+X_shape2 <- dim(x_train)[2]
+X_shape3 <- dim(x_train)[3]
+batch_size <- 1
+units <- 100
+n_timesteps <- 12
+n_predictions <- n_timesteps
+
+build_matrix <- function(tseries, overall_timesteps) {
+  t(sapply(1:(length(tseries) - overall_timesteps + 1), function(x) 
+    tseries[x:(x + overall_timesteps - 1)]))
+}
+reshape_X_3d <- function(X) {
+  dim(X) <- c(dim(X)[1], dim(X)[2], 1)
+  X
+}
+
+
+```
+
+
+
+
+
+
+
+
+```{r}
+model.lstm2 <- keras_model_sequential()
+
+```
+
+
+```{r}
+
+model.lstm2 %>% 
+  layer_lstm(units, batch_input_shape = c(batch_size, X_shape2, X_shape3), stateful = TRUE) %>%
+  layer_dense(units = 1)
+```
+
+
+
+```{r}
+model.lstm2 %>% 
+  compile(loss = 'mean_squared_error',
+          optimizer = optimizer_adam(lr = 0.03, decay = 1e-6),
+          metrics = c('accuracy','mse','mae'))
+```
+
+```{r}
+
+  
+history <- model.lstm2 %>% fit(x_train,y_train,
+                              epochs = 25,
+                              batch_size = 128,
+                              validation_split = 0.2,
+                              shuffle=FALSE)
+```
+
+```{r}
+L = length(x_test)
+scaler = Scaled$scaler
+predictions2 = numeric(L)
+Series=supervised[,1]
+
+for(i in 1:L){
+  X = x_test[i]
+  dim(X) = c(1,1,1)
+  yhat = model.lstm2 %>% predict(X, batch_size=batch_size)
+  # invert scaling
+  yhat = reverse_scaling(yhat, scaler,  c(-1, 1))
+  # invert differencing
+  yhat  = yhat + as.numeric(Series[(n_+i)])
+  # store
+  predictions2[i] <- yhat
+}
+names(test)[1] <- "Closed"
+lstmMAE<-mae(test$Close,predictions)
+lstmMAPE<-mape(test$Close,predictions)
+lstmMSE<-mse(test$Close,predictions)
+lstmRMSE<-rmse(test$Close,predictions)
+LSTMe<-cbind(lstmMAE,lstmMAPE,lstmMSE,lstmRMSE)
+
+```
+
+#Dax predictions plot
+```{r}
+ts.closeddax<-ts(test[,2],frequency = 365)
+deneme<-ts(predictions2,frequency = 365)
+df4<-as.data.frame(cbind(deneme,ts.closeddax))
+satir <- round(nrow(dax5) * .70, digits = 0)
+tarih<- dax5[(satir+1):1210,]
+df4%>%
+  ggplot(aes(x=tarih$dax.Date..1.,y=deneme))+
+  geom_line(color="red")+
+  geom_line(y=ts.closeddax,color="blue")
+```
+
+
+
+
+
+# GARCH DAX
+
+
+```{r}
+c=ugarchspec(variance.model = 
+               list(model="eGARCH",garchOrder=c(1,1)))
+c_fit=ugarchfit(spec=c,data=dax5$Close)
+```
+
+```{r}
+c_fit
+```
+
+
+```{r}
+garchfitted<-fitted(c_fit)
+x<-as.data.frame(garchfitted)
+x <- x[order(-x$V1),, drop=FALSE];row.names(x) <- NULL
+x2<- cbind(x, dax5$dax.Date..1)
+#garchfitted<-garchfitted[-2]
+#garchfitted<-as.data.frame(cbind(garchfitted, as.data.frame(dax5$dax.Date..1.)))
+#garchfitted <- garchfitted[-1,]
+#garchfitted <- cbind(garchfitted, dax5[-1,])
+x2$set <- "train"
+x2$number<- 1:1210
+dax5$number<-1:1210
+x2$set[x2$`number` > 847] <- "test"
+x2$x2[x2$`number` > 847]<-dax5$Close[dax5$`number`>847]
+#garchPlot <- plot_ly(garchfitted, x = ~`Date`) %>%
+ # add_trace(y = ~Close, mode = "lines", name = "Interest Rate") %>%
+  #add_trace(y = ~garchfitted, mode = "lines", name = "Interest Rate") %>%
+  #layout(title = "GARCH")
+garchMAE <- x2 %>% filter(set == "test") %>% select(`V1`, `x2`)
+ garchMAE <- mae(garchMAE$`V1`, as.numeric(garchMAE$`x2`))
+ garchMAE
+```
+
+
+```{r}
+
+ts.closed_dax2<-ts(test$`Close`,frequency = 365)
+deneme7<-ts(x2$x2[848:1210],frequency = 365)
+df7<-as.data.frame(cbind(deneme7,ts.closed_dax2))
+satir7 <- round(nrow(dax5) * .70, digits = 0)
+tarih7<- dax5[(satir7+1):1210,]
+df7%>%
+  ggplot(aes(x=tarih7$dax.Date..1.,y=deneme7))+
+  geom_line(color="red")+
+  geom_line(y=ts.closed_dax2,color="blue")
+```
+
+
+
+
+
+
+# SVM DAX
+
+```{r}
+
+daily_data <- dax5[2][-1210,]
+days <- 1:1210
+x<- dax5[-1,]
+DF <- data.frame(x,daily_data)
+DF<-DF[-1]
+DF<-DF[-2]
+colnames(DF)<-c("y","x")
+
+
+# train an svm model, consider further tuning parameters for lower MSE
+svmodel <- svm(y ~ x,data=DF, type="eps-regression",kernel="radial",cost=10000, gamma=10)
+#specify timesteps for forecast, eg for all series + 12 months ahead
+nd <- 1:1210
+#compute forecast for all the 156 months 
+prognoza <- predict(svmodel, newdata=data.frame(x=dax5$Close))
+
+
+
+```
+
+```{r}
+
+svmFitted <- prognoza
+svmFitted <- as.data.frame(cbind(svmFitted, dax5$dax.Date..1 ))
+svmFitted <- cbind(svmFitted, dax5)
+#svmFitted$set <- "train2"
+svmFitted$set[svmFitted$`number` > 847] <- "test2"
+svmFitted$svmFitted[svmFitted$set == "train2"] <- NA
+#svmPlot <- plot_ly(arimaFitted, x = ~`Date`) %>%
+ # add_trace(y = ~Close, mode = "lines", name = "Interest Rate") %>%
+  #add_trace(y = ~arimaFitted, mode = "lines", name = "Interest Rate") %>%
+  #layout(title = "ARIMA")
+pred <- svmFitted %>% filter(set == "test2") %>% select(`Close`, svmFitted)
+ svmMAE <- mae(pred$`Close`, as.numeric(pred$svmFitted))
+ svmMAE <- mae(pred$`Close`, as.numeric(pred$svmFitted))
+ svmMAE
+ svmMAPE<-mape(pred$`Close`, as.numeric(pred$svmFitted))
+ svmMSE<-mse(pred$`Close`, as.numeric(pred$svmFitted))
+ svmRMSE<-rmse(pred$`Close`, as.numeric(pred$svmFitted))
+ pred
+  e_svm<-pred$svmFitted-pred$Close
+  SVMe<-cbind(svmMAE,svmMAPE,svmMSE,svmRMSE)
+ 
+```
+
+```{r}
+ts.closed_dax3<-ts(test[,2],frequency=365)
+deneme8<-ts(svmFitted$svmFitted[848:1210],frequency = 365)
+df8<-as.data.frame(cbind(deneme4,ts.closed_dax3))
+satir8 <- round(nrow(dax5) * .70, digits = 0)
+tarih8<- dax5[(satir8+1):1210,]
+df8%>%
+  ggplot(aes(x=tarih8$dax.Date..1.,y=deneme8))+
+  geom_line(color="red")+
+  geom_line(y=ts.closed_dax3,color="blue")+
+  scale_y_continuous( limits=c(-0.025, 0.025))
+  
+```
+
+#ARIMA DAX
+
+```{r}
+tt<-rbind(train[2],test[2])
+arima_012<-auto.arima(ts(tt,frequency = 365))
+```
+
+
+```{r}
+arimaFit <- arima_012
+arimaFitted <- arimaFit$fitted
+arimaFitted <- as.data.frame(cbind(arimaFitted, dax5$Date ))
+arimaFitted <- cbind(arimaFitted, dax5)
+arimaFitted$set[arimaFitted$number > 847] <- "test2"
+arimaFitted$set[arimaFitted$set == "train2"] <- NA
+arimaMAE2 <- arimaFitted %>% filter(set == "test2") %>% select(`Close`, x)
+ arimaMAE <- mae(arimaMAE2$`Close`, as.numeric(arimaMAE2$x))
+ arimaMAE
+ arimaMAPE <- mape(arimaMAE2$`Close`, as.numeric(arimaMAE2$x))
+ arimaMSE <- mse(arimaMAE2$`Close`, as.numeric(arimaMAE2$x))
+ arimaRMSE <- rmse(arimaMAE2$`Close`, as.numeric(arimaMAE2$x))
+ARIMAe<-cbind(arimaMAE,arimaMAPE,arimaMSE,arimaRMSE)
+ e_arima<-arimaMAE2$x-arimaMAE2$Close
+```
+
+
+# ARIMA_SVM HYBRID
+
+
+
+```{r}
+
+svm_arima_tune<-tune.svm(
+     test[,2]~ e_arima,
+	    data = test,
+	    gamma = 2 ^ (-1:1),
+	    cost = 2 ^ (2:8), 
+	    epsilon = seq(0, 1, 0.1),
+	    kernel = "radial"
+	)
+	svm_arima <- svm_arima_tune$best.model
+svm_arima_pred <- fitted(svm_arima)
+```
+
+
+```{r}
+hybrid_svmarima_pred<-svm_arima_pred+pred$svmFitted
+
+a<-test
+hybrid_svmarima_pred_mae<-mae(hybrid_svmarima_pred, a[,2])
+hybrid_svmarima_pred_mse<-mse(hybrid_svmarima_pred, a[,2])
+hybrid_svmarima_pred_rmse<-rmse(hybrid_svmarima_pred, a[,2])
+hybrid_svmarima_pred_mape<-mape(hybrid_svmarima_pred, a[,2])
+ARIMA_SVM<-cbind(hybrid_svmarima_pred_mae,hybrid_svmarima_pred_mape,hybrid_svmarima_pred_mse,hybrid_svmarima_pred_rmse)
+```
+
+
+
+
+```{r}
+ts.closed_dax4<-ts(test[,2],frequency=365)
+deneme10<-ts(hybrid_svmarima_pred,frequency = 365)
+df10<-as.data.frame(cbind(deneme10,ts.closed_dax4))
+df10$actual <- "actual"
+df10$prediction<-"prediction"
+satir10 <- round(nrow(dax5) * .70, digits = 0)
+tarih10<- dax5[(satir10+1):1210,]
+df10%>%
+  ggplot(aes(x=tarih10$dax.Date..1.,y=deneme10,group=prediction,color=prediction))+
+  geom_line(aes(y=ts.closed_dax4,group=actual,color=actual))+
+  geom_line(aes(y=deneme10,group=prediction,color=prediction))+
+  labs(x = "Date", y = "DAX Closed Value", color = "Data\n") +
+  scale_color_manual(labels = c("Prediction", "Actual"), values = c("blue", "red"))+
+  scale_y_continuous( limits=c(-0.065, 0.065))
+
+```
+
+
+
+
+# GARCH_SVM HYBRID
+
+```{r}
+garchfitted<-fitted(c_fit)
+x<-as.data.frame(garchfitted)
+
+x2<- cbind(x, dax5$dax.Date..1)
+
+x2$set <- "train"
+x2$number<- 1:1210
+dax5$number<-1:1210
+x2$set[x2$`number` > 847] <- "test"
+x2$x2[x2$`number` > 847]<-dax5$Close[dax5$`number`>847]
+
+garchMAE <- x2 %>% filter(set == "test") %>% select(`V1`, `x2`)
+ garchMAE2 <- mae(garchMAE$`V1`, as.numeric(test[,2]))
+ garchMAE2
+ garchMAPE2 <- mape(garchMAE$`V1`, as.numeric(garchMAE$`x2`))
+ garchMSE2 <- mse(garchMAE$`V1`, as.numeric(garchMAE$`x2`))
+ garchRMSE2 <- rmse(garchMAE$`V1`, as.numeric(garchMAE$`x2`))
+ GARCHe<-cbind(garchMAE2,garchMAPE2,garchMSE2,garchRMSE2)
+ 
+ e_garch<-garchMAE$x2-garchMAE$V1
+
+svm_garch_tune<-tune.svm(
+     test[,2]~ e_garch,
+	    data = test,
+	    gamma = 2 ^ (-1:1),
+	    cost = 2 ^ (2:8), 
+	    epsilon = seq(0, 1, 0.1),
+	    kernel = "radial"
+	)
+	svm_garch <- svm_garch_tune$best.model
+svm_garch_pred <- fitted(svm_garch)
+```
+
+```{r}
+hybrid_svmgarch_pred<-svm_garch_pred+pred$svmFitted
+
+a<-test
+hybrid_svmgarch_pred_mae<-mae(hybrid_svmgarch_pred, a[,2])
+hybrid_svmgarch_pred_mse<-mse(hybrid_svmgarch_pred, a[,2])
+hybrid_svmgarch_pred_rmse<-rmse(hybrid_svmgarch_pred, a[,2])
+hybrid_svmgarch_pred_mape<-mape(hybrid_svmgarch_pred, a[,2])
+GARCH_SVM<-cbind(hybrid_svmgarch_pred_mae,hybrid_svmgarch_pred_mape,hybrid_svmgarch_pred_mse,hybrid_svmgarch_pred_rmse)
+```
+
+```{r}
+ts.closed_dax4<-ts(test[,2],frequency=365)
+deneme6<-ts(hybrid_svmgarch_pred,frequency = 365)
+df6<-as.data.frame(cbind(deneme6,ts.closed_dax4))
+df6$actual <- "actual"
+df6$prediction<-"prediction"
+satir6 <- round(nrow(dax5) * .70, digits = 0)
+tarih6<- dax5[(satir6+1):1210,]
+df6%>%
+  ggplot(aes(x=tarih6$dax.Date..1.,y=deneme6,group=prediction,color=prediction))+
+  geom_line(aes(y=ts.closed_dax4,group=actual,color=actual))+
+  geom_line(aes(y=deneme6,group=prediction,color=prediction))+
+  labs(x = "Date", y = "DAX Closed Value", color = "Data\n") +
+  scale_color_manual(labels = c("Prediction", "Actual"), values = c("blue", "red"))+
+  scale_y_continuous( limits=c(-0.065, 0.065))
+
+```
+
+#ARIMA_LSTM HYBRID
+
+
+
+```{r}
+L = length(e_arima)
+scaler = Scaled$scaler
+predictions2 = numeric(L)
+Series=supervised[,1]
+
+for(i in 1:L){
+  X = e_arima[i]
+  dim(X) = c(1,1,1)
+  yhat = model.lstm2 %>% predict(X, batch_size=batch_size)
+  # invert scaling
+  yhat = reverse_scaling(yhat, scaler,  c(-1, 1))
+  # invert differencing
+  yhat  = yhat + as.numeric(Series[(n_+i)])
+  # store
+  predictions2[i] <- yhat
+}
+predictions2
+```
+
+
+
+
+```{r}
+hybrid_arimalstm_pred<-predictions2+ arimaMAE2$x
+
+a<-test
+hybrid_arimalstm_pred_mae<-mae(hybrid_arimalstm_pred, a[,2])
+hybrid_arimalstm_pred_mse<-mse(hybrid_arimalstm_pred, a[,2])
+hybrid_arimalstm_pred_rmse<-rmse(hybrid_arimalstm_pred, a[,2])
+hybrid_arimalstm_pred_mape<-mape(hybrid_arimalstm_pred, a[,2])
+ARIMA_LSTM<-cbind(hybrid_arimalstm_pred_mae, hybrid_arimalstm_pred_mape, hybrid_arimalstm_pred_mse, hybrid_arimalstm_pred_rmse)
+
+```
+
+
+
+
+
+
+```{r}
+ts.closed_dax5<-ts(test[,2],frequency=365)
+deneme8<-ts(hybrid_arimalstm_pred,frequency = 365)
+df8<-as.data.frame(cbind(deneme8,ts.closed_dax5))
+df8$actual <- "actual"
+df8$prediction<-"prediction"
+satir8 <- round(nrow(dax5) * .70, digits = 0)
+tarih8<- dax5[(satir8+1):1210,]
+df8%>%
+  ggplot(aes(x=tarih8$dax.Date..1.,y=deneme8,group=prediction,color=prediction))+
+  geom_line(aes(y=ts.closed_dax5,group=actual,color=actual))+
+  geom_line(aes(y=deneme8,group=prediction,color=prediction))+
+  labs(x = "Date", y = "DAX Closed Value", color = "Data\n") +
+  scale_color_manual(labels = c("Prediction", "Actual"), values = c("blue", "red"))+
+  scale_y_continuous( limits=c(-0.025, 0.025))
+
+```
+
+
+# GARCH-LSTM HYBRID
+
+```{r}
+L = length(e_garch)
+scaler = Scaled$scaler
+predictions3 = numeric(L)
+Series=supervised[,1]
+
+for(i in 1:L){
+  X = e_garch[i]
+  dim(X) = c(1,1,1)
+  yhat = model.lstm2 %>% predict(X,batch_size=batch_size)
+  # invert scaling
+  yhat = reverse_scaling(yhat, scaler,  c(-1, 1))
+  # invert differencing
+  yhat  = yhat + as.numeric(Series[(n_+i)])
+  # store
+  predictions3[i] <- yhat
+}
+predictions3
+```
+
+
+
+
+```{r}
+hybrid_garchlstm_pred<-predictions3+ garchMAE$x2
+
+a<-test
+hybrid_garchlstm_pred_mae<-mae(hybrid_garchlstm_pred, a[,2])
+hybrid_garchlstm_pred_mse<-mse(hybrid_garchlstm_pred, a[,2])
+hybrid_garchlstm_pred_rmse<-rmse(hybrid_garchlstm_pred, a[,2])
+hybrid_garchlstm_pred_mape<-mape(hybrid_garchlstm_pred, a[,2])
+GARCH_LSTM<-cbind(hybrid_garchlstm_pred_mae, hybrid_garchlstm_pred_mape, hybrid_garchlstm_pred_mse, hybrid_garchlstm_pred_rmse)
+
+```
+
+
+
+
+
+
+```{r}
+ts.closed_dax5<-ts(test[,2],frequency=365)
+deneme9<-ts(hybrid_garchlstm_pred,frequency = 365)
+df9<-as.data.frame(cbind(deneme9,ts.closed_dax5))
+df9$actual <- "actual"
+df9$prediction<-"prediction"
+satir9 <- round(nrow(dax5) * .70, digits = 0)
+tarih9<- dax5[(satir9+1):1210,]
+df9%>%
+  ggplot(aes(x=tarih9$dax.Date..1.,y=deneme9,group=prediction,color=prediction))+
+  geom_line(aes(y=ts.closed_dax5,group=actual,color=actual))+
+  geom_line(aes(y=deneme9,group=prediction,color=prediction))+
+  labs(x = "Date", y = "DAX Closed Value", color = "Data\n") +
+  scale_color_manual(labels = c("Prediction", "Actual"), values = c("blue", "red"))+
+  scale_y_continuous( limits=c(-0.074, 0.074))
+
+```
+
+
+#HATALARIN KARSILASTIRILMASI
+
+
+```{r}
+SONUC2<-rbind(LSTMe,GARCHe,ARIMAe,SVMe,ARIMA_SVM,GARCH_SVM,GARCH_LSTM,ARIMA_LSTM)
+row.names(SONUC2) <-c("LSTM","ARIMA-EGARCH","ARIMA","SVM","ARIMA_SVM","ARIMA-EGARCH_SVM","ARIMA-EGARCH_LSTM","ARIMA_LSTM")
+colnames(SONUC2)<-c("MAE","MAPE","MSE","RMSE")
+SONUC2<-as.data.frame(SONUC2)
+
+min(SONUC2$MAE)
+```
+```{r}
+dax3 %>% slice(1211:1211)
+```
+
+```{r}
+forecast_garchsvm_dax=dax3 %>% slice(1211:1211)+hybrid_svmgarch_pred[363]
+
+forecast_arimasvm_dax=dax3 %>% slice(1211:1211)+hybrid_svmarima_pred[363]
+exp(forecast_arimasvm_dax)
+```
+
+
+
+
+```{r}
+test3<-test[1]
+test4<-test3[-c(363),]
+test4[363] = 15388.39
+as.data.frame(test4)
+```
+
+```{r}
+yeni_test=dax3 %>% tail(363)
+yeni_test
+test4<-yeni_test
+
+```
+
+
+```{r}
+write.csv(SONUC2, "DAX_SONUC.csv", row.names = T)
+
+```
+
+```{r}
+test4<-exp(test4)
+test4<-test4%>%
+  add_row(Close=15469.22)
+test4<-test4[-c(363),]
+ts.closed_dax5<-ts(test4,frequency=365)
+deneme7<-ts(hybrid_svmarima_pred+yeni_test,frequency = 365)
+df7<-as.data.frame(cbind(deneme7,ts.closed_dax5))
+df7$actual <- "actual"
+df7$prediction<-"prediction"
+satir7 <- round(nrow(dax5) * .70, digits = 0)
+tarih7<- dax5[(satir7+1):1210,]
+df7%>%
+  ggplot(aes(x=tarih7$dax.Date..1.,y=exp(deneme7),group=prediction,color=prediction))+
+  geom_line(aes(y=ts.closed_dax5,group=actual,color=actual))+
+  geom_line(aes(y=exp(deneme7),group=prediction,color=prediction))+
+  labs(x = "Date", y = "DAX Closed Value", color = "Data\n") +
+  scale_color_manual(labels = c("Prediction", "Actual"), values = c("blue", "red"))+
+scale_y_continuous( limits=c(10000, 20000))
+
+
+```
+15 günlük forecast en iyi sonucu veren yöntem ile
+```{r}
+write.csv(hybrid_svmarima_pred,"pred_dax.csv")
+write.csv(dax2,"test2.csv")
+write.csv(dax3,"test.csv")
+```
+
+grafik ve tabloları (application kısmını önce yaz, datayı tanımla, gelişmiş ülkeler az gelişmiş ülkeler kıyasladık vb.
+
+data tarihleri sayısı dönüşümler vb. açıkla
+
+yazarken zhang vb makaleleri incele dil olarak)
+
+grafik olarak 2şer tane ya da en iyi olanı verelim
+
+forecast kısmında log return u almayı unutma
+
+arima lstm icinde forecast dene
